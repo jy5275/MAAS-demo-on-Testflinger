@@ -1,0 +1,34 @@
+job_queue: mamar # any other available queue works: http://testflinger.canonical.com/queues/
+provision_data:
+  distro: noble
+test_data:
+  test_cmds: |
+    # Launch maas VM. See https://maas.io/tutorials/build-a-maas-and-lxd-environment-in-30-minutes-with-multipass-on-ubuntu#1-overview
+    ssh ubuntu@$DEVICE_IP sudo snap install multipass
+    ssh ubuntu@$DEVICE_IP sudo snap install lxd
+    ssh ubuntu@$DEVICE_IP sudo apt install -y cpu-checker     # optional
+    ssh ubuntu@$DEVICE_IP "wget -qO- https://raw.githubusercontent.com/canonical/maas-multipass/main/maas.yml | multipass launch --name maas -c4 -m8GB -d32GB --cloud-init -"
+    
+    # Allow IPv4 traffic forwarding on the tethost (testflinger machine)
+    ssh ubuntu@$DEVICE_IP sudo sed -i 's/^#net\.ipv4\.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
+
+    # Update iptable on the host to forward port 5240 traffic to guest VM
+    #  1. Find the network interface name
+    export INTF=$(ssh ubuntu@$DEVICE_IP ip -o addr show | awk -v ip="$DEVICE_IP" '$4 ~ ip {print $2}') # output net intf name
+    echo $INTF
+
+    #  2. Find the maas VM IP
+    export MAAS_IP=$(ssh ubuntu@$DEVICE_IP multipass list | awk 'NR==2 {print $3}')
+    echo $MAAS_IP
+    
+    #  3. Update iptable
+    ssh ubuntu@$DEVICE_IP sudo iptables -t nat -I PREROUTING 1 -i $INTF -p tcp --dport 5240 -j DNAT --to-destination $MAAS_IP:5240
+    ssh ubuntu@$DEVICE_IP sudo iptables -I FORWARD 1 -p tcp -d $MAAS_IP --dport 5240 -j ACCEPT
+    
+    # Web admin page 
+    echo http://$DEVICE_IP:5240/MAAS/ 
+
+reserve_data:
+  ssh_keys:
+    - lp:yanjiangpku  # replace this with your launchpad ID
+  timeout: 1800       # 21600
